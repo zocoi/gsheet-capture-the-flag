@@ -10,20 +10,26 @@
 // Run simulateGame() to start.
 // ============================================================
 
-var GRID_ROWS        = 20;
-var GRID_COLS        = 20;
-var GRID_RANGE       = 'A1:T20';
-var PELLET_COUNT     = 5;
-var MAX_FRAMES       = 300;
-var FRAME_DELAY_MS   = 800;
-var INIT_SNAKE_LEN   = 1;
+var GRID_ROWS      = 20;
+var GRID_COLS      = 20;
+var GRID_RANGE     = 'A1:T20';
+var PELLET_COUNT   = 5;
+var MAX_FRAMES     = 300;
+var FRAME_DELAY_MS = 500;
+var INIT_SNAKE_LEN = 1;
 
-var COLOR_DEAD       = '#888888';
-var COLOR_PELLET     = '#FFD700';
-var COLOR_EMPTY      = null;
-var PELLET_SYMBOL    = '●';
+// ── Colors & symbols ────────────────────────────────────────
+var BG_EMPTY     = '#161B22';  // dark arena
+var BG_DEAD      = '#21262D';  // dim dead trail
+var BG_PELLET    = '#39D353';  // bright green pellet
+var BG_SCORE     = '#0D1117';  // scoreboard panel
+var PELLET_SYMBOL = '★';
+var DIR_ARROW    = { UP: '▲', DOWN: '▼', LEFT: '◄', RIGHT: '►' };
 
-// ── Coordinate helpers ──────────────────────────────────────
+// ── Scoreboard layout ────────────────────────────────────────
+var SCORE_COL    = GRID_COLS + 2;  // column V (22), skip U as gap
+
+// ── Coordinate helpers ───────────────────────────────────────
 // All internal positions are {r, c} with 1-based indices.
 
 function pos(r, c) { return { r: r, c: c }; }
@@ -47,8 +53,32 @@ function applyDir(p, dir) {
 var OPPOSITE = { UP: 'DOWN', DOWN: 'UP', LEFT: 'RIGHT', RIGHT: 'LEFT' };
 var ALL_DIRS  = ['UP', 'DOWN', 'LEFT', 'RIGHT'];
 
-// ── Board map ───────────────────────────────────────────────
-// board[r][c] is one of: null (empty), 'pellet', 'dead', or snakeIndex (number)
+// ── Color helpers ────────────────────────────────────────────
+
+function hexToRgb(hex) {
+  return [parseInt(hex.slice(1,3),16), parseInt(hex.slice(3,5),16), parseInt(hex.slice(5,7),16)];
+}
+
+function rgbToHex(r, g, b) {
+  return '#' + [r,g,b].map(function(v) {
+    return Math.min(255, Math.max(0, Math.round(v))).toString(16).padStart(2,'0');
+  }).join('');
+}
+
+function lightenColor(hex, t) {  // t: 0–1, blend toward white
+  if (!hex || hex[0] !== '#' || hex.length !== 7) return hex;
+  var c = hexToRgb(hex);
+  return rgbToHex(c[0]+(255-c[0])*t, c[1]+(255-c[1])*t, c[2]+(255-c[2])*t);
+}
+
+function darkenColor(hex, t) {  // t: 0–1, blend toward black
+  if (!hex || hex[0] !== '#' || hex.length !== 7) return hex;
+  var c = hexToRgb(hex);
+  return rgbToHex(c[0]*(1-t), c[1]*(1-t), c[2]*(1-t));
+}
+
+// ── Board map ────────────────────────────────────────────────
+// board[r][c]: null | 'pellet' | 'dead' | snakeIndex (number)
 
 function makeBoard() {
   var b = [];
@@ -58,17 +88,14 @@ function makeBoard() {
   return b;
 }
 
-// ── BFS pathfinding ─────────────────────────────────────────
+// ── BFS pathfinding ──────────────────────────────────────────
 
 function bfsNextDir(head, board, pellets) {
-  // Build pellet lookup
   var pelletSet = {};
-  for (var i = 0; i < pellets.length; i++) {
-    pelletSet[posKey(pellets[i])] = true;
-  }
+  for (var i = 0; i < pellets.length; i++) pelletSet[posKey(pellets[i])] = true;
 
-  var queue    = [{ p: head, first: null }];
-  var visited  = {};
+  var queue   = [{ p: head, first: null }];
+  var visited = {};
   visited[posKey(head)] = true;
 
   while (queue.length) {
@@ -77,110 +104,198 @@ function bfsNextDir(head, board, pellets) {
       var dir  = ALL_DIRS[d];
       var next = applyDir(cur.p, dir);
       if (!inBounds(next)) continue;
-      var key = posKey(next);
+      var key  = posKey(next);
       if (visited[key]) continue;
       var cell = board[next.r][next.c];
-      if (cell !== null && cell !== 'pellet') continue; // obstacle
+      if (cell !== null && cell !== 'pellet') continue;
 
       var first = cur.first || dir;
-      if (pelletSet[key]) return first; // found a pellet
+      if (pelletSet[key]) return first;
 
       visited[key] = true;
       queue.push({ p: next, first: first });
     }
   }
 
-  // No path to any pellet — move to any safe adjacent cell
+  // No path to pellet — pick any safe direction
   for (var d = 0; d < ALL_DIRS.length; d++) {
     var next = applyDir(head, ALL_DIRS[d]);
     if (!inBounds(next)) continue;
     var cell = board[next.r][next.c];
     if (cell === null || cell === 'pellet') return ALL_DIRS[d];
   }
-
-  return null; // cornered — will die
+  return null;
 }
 
-// ── Pellet helpers ──────────────────────────────────────────
+// ── Pellet helpers ───────────────────────────────────────────
 
 function respawnPellet(board) {
-  // Collect all free cells then pick randomly (avoids hot-loop on dense boards)
   var free = [];
-  for (var r = 1; r <= GRID_ROWS; r++) {
-    for (var c = 1; c <= GRID_COLS; c++) {
+  for (var r = 1; r <= GRID_ROWS; r++)
+    for (var c = 1; c <= GRID_COLS; c++)
       if (board[r][c] === null) free.push(pos(r, c));
-    }
-  }
   if (!free.length) return null;
   return free[Math.floor(Math.random() * free.length)];
 }
 
-// ── Grid setup ──────────────────────────────────────────────
+// ── Grid setup ───────────────────────────────────────────────
 
 function setupGrid(mainSheet) {
+  // Game grid dimensions
   for (var c = 1; c <= GRID_COLS; c++) mainSheet.setColumnWidth(c, 36);
   for (var r = 1; r <= GRID_ROWS; r++) mainSheet.setRowHeight(r, 22);
-  var rng = mainSheet.getRange(GRID_RANGE);
-  rng.clear();
-  rng.setBackground(null);
-  rng.setBorder(true, true, true, true, null, null);
-  rng.setFontSize(8);
-  rng.setHorizontalAlignment('center');
-  rng.setVerticalAlignment('middle');
-  // Clear any previous status line
-  mainSheet.getRange(GRID_ROWS + 2, 1, 1, GRID_COLS).clearContent();
+
+  var grid = mainSheet.getRange(GRID_RANGE);
+  grid.clear();
+  grid.setBackground(BG_EMPTY);
+  grid.setFontSize(9);
+  grid.setHorizontalAlignment('center');
+  grid.setVerticalAlignment('middle');
+  grid.setFontColor('#C9D1D9');
+
+  // Subtle inner grid lines, bright outer border
+  grid.setBorder(null, null, null, null, true, true, '#30363D', SpreadsheetApp.BorderStyle.SOLID);
+  grid.setBorder(true, true, true, true, null, null, '#58A6FF', SpreadsheetApp.BorderStyle.SOLID_MEDIUM);
+
+  // Spacer column U
+  mainSheet.setColumnWidth(GRID_COLS + 1, 10);
+
+  // Scoreboard columns V (swatch), W (name), X (length)
+  mainSheet.setColumnWidth(SCORE_COL,     14);
+  mainSheet.setColumnWidth(SCORE_COL + 1, 96);
+  mainSheet.setColumnWidth(SCORE_COL + 2, 36);
+
+  // Scoreboard area base style
+  mainSheet.getRange(1, SCORE_COL, GRID_ROWS, 3)
+    .setBackground(BG_SCORE)
+    .setFontColor('#8B949E')
+    .setFontSize(9)
+    .setVerticalAlignment('middle')
+    .setBorder(null, true, null, true, false, false, '#30363D', SpreadsheetApp.BorderStyle.SOLID);
+
+  // Clear status row
+  mainSheet.getRange(GRID_ROWS + 2, 1, 1, GRID_COLS)
+    .clearContent()
+    .setBackground(null);
 }
 
-// ── Rendering ───────────────────────────────────────────────
+// ── Grid renderer ────────────────────────────────────────────
 
 function renderFrame(mainSheet, snakes, board, statusMsg) {
-  var vals    = [];
-  var bgs     = [];
-  var weights = [];
+  var vals = [], bgs = [], weights = [], fontColors = [];
 
   for (var r = 1; r <= GRID_ROWS; r++) {
-    var vRow = [], bRow = [], wRow = [];
+    var vRow = [], bRow = [], wRow = [], fRow = [];
     for (var c = 1; c <= GRID_COLS; c++) {
       var cell = board[r][c];
+
       if (cell === null) {
-        vRow.push(''); bRow.push(COLOR_EMPTY); wRow.push('normal');
+        vRow.push('');            bRow.push(BG_EMPTY);  wRow.push('normal'); fRow.push('#30363D');
+
       } else if (cell === 'pellet') {
-        vRow.push(PELLET_SYMBOL); bRow.push(COLOR_PELLET); wRow.push('normal');
+        vRow.push(PELLET_SYMBOL); bRow.push(BG_PELLET); wRow.push('bold');   fRow.push('#000000');
+
       } else if (cell === 'dead') {
-        vRow.push(''); bRow.push(COLOR_DEAD); wRow.push('normal');
+        vRow.push('');            bRow.push(BG_DEAD);   wRow.push('normal'); fRow.push(BG_DEAD);
+
       } else {
-        // Living snake segment — cell value is snakeIndex
-        var s = snakes[cell];
+        var s      = snakes[cell];
         var isHead = (r === s.body[0].r && c === s.body[0].c);
-        vRow.push(isHead ? s.name : '');
-        bRow.push(s.color);
-        wRow.push(isHead ? 'bold' : 'normal');
+        if (isHead) {
+          vRow.push(s.lastDir ? DIR_ARROW[s.lastDir] : '◉');
+          bRow.push(darkenColor(s.color, 0.15));
+          wRow.push('bold');
+          fRow.push('#FFFFFF');
+        } else {
+          vRow.push('');
+          bRow.push(lightenColor(s.color, 0.30));
+          wRow.push('normal');
+          fRow.push('#FFFFFF');
+        }
       }
     }
-    vals.push(vRow); bgs.push(bRow); weights.push(wRow);
+    vals.push(vRow); bgs.push(bRow); weights.push(wRow); fontColors.push(fRow);
   }
 
   var rng = mainSheet.getRange(GRID_RANGE);
   rng.setValues(vals);
   rng.setBackgrounds(bgs);
   rng.setFontWeights(weights);
+  rng.setFontColors(fontColors);
 
   if (statusMsg) {
-    mainSheet.getRange(GRID_ROWS + 2, 1)
+    mainSheet.getRange(GRID_ROWS + 2, 1, 1, GRID_COLS)
+      .merge()
       .setValue(statusMsg)
-      .setFontSize(14)
-      .setFontWeight('bold');
+      .setBackground('#0D1117')
+      .setFontColor('#58A6FF')
+      .setFontSize(13)
+      .setFontWeight('bold')
+      .setHorizontalAlignment('center');
   }
 }
 
-// ── Game initialisation ─────────────────────────────────────
+// ── Scoreboard renderer ──────────────────────────────────────
+
+function renderScoreboard(mainSheet, snakes, frame) {
+  var vals = [], bgs = [], fontColors = [], weights = [];
+
+  // Title
+  vals.push(['', '🐍 SNAKE TRON', '']);
+  bgs.push([BG_SCORE, BG_SCORE, BG_SCORE]);
+  fontColors.push([BG_SCORE, '#58A6FF', BG_SCORE]);
+  weights.push(['normal', 'bold', 'normal']);
+
+  // Frame counter
+  vals.push(['', 'Frame ' + frame + ' / ' + MAX_FRAMES, '']);
+  bgs.push([BG_SCORE, BG_SCORE, BG_SCORE]);
+  fontColors.push([BG_SCORE, '#484F58', BG_SCORE]);
+  weights.push(['normal', 'normal', 'normal']);
+
+  // Spacer
+  vals.push(['', '', '']); bgs.push([BG_SCORE, BG_SCORE, BG_SCORE]);
+  fontColors.push([BG_SCORE, BG_SCORE, BG_SCORE]); weights.push(['normal', 'normal', 'normal']);
+
+  // Alive header
+  vals.push(['', 'PLAYER', 'LEN']);
+  bgs.push([BG_SCORE, BG_SCORE, BG_SCORE]);
+  fontColors.push([BG_SCORE, '#484F58', '#484F58']);
+  weights.push(['normal', 'normal', 'normal']);
+
+  // Player rows
+  snakes.forEach(function(s) {
+    var alive     = s.alive;
+    var swatch    = alive ? s.color : '#21262D';
+    var nameColor = alive ? '#E6EDF3' : '#484F58';
+    var lenColor  = alive ? '#79C0FF' : '#484F58';
+    var label     = alive ? s.name : '✕ ' + s.name;
+    var length    = alive ? s.body.length : '';
+    vals.push(['', label, length]);
+    bgs.push([swatch, BG_SCORE, BG_SCORE]);
+    fontColors.push([swatch, nameColor, lenColor]);
+    weights.push(['normal', alive ? 'bold' : 'normal', 'normal']);
+  });
+
+  // Pad to GRID_ROWS
+  while (vals.length < GRID_ROWS) {
+    vals.push(['', '', '']); bgs.push([BG_SCORE, BG_SCORE, BG_SCORE]);
+    fontColors.push([BG_SCORE, BG_SCORE, BG_SCORE]); weights.push(['normal', 'normal', 'normal']);
+  }
+
+  var rng = mainSheet.getRange(1, SCORE_COL, GRID_ROWS, 3);
+  rng.setValues(vals);
+  rng.setBackgrounds(bgs);
+  rng.setFontColors(fontColors);
+  rng.setFontWeights(weights);
+}
+
+// ── Game initialisation ──────────────────────────────────────
 
 function initGameState(ss, mainSheet) {
   var board   = makeBoard();
   var snakes  = [];
   var pellets = [];
 
-  // Load player sheets
   var playerSheets = ss.getSheets().filter(function(s) { return s.getName() !== 'Main'; });
 
   playerSheets.forEach(function(sheet, idx) {
@@ -189,11 +304,9 @@ function initGameState(ss, mainSheet) {
     var autoVal  = sheet.getRange('B2').getValue();
     var autoMove = (String(autoVal).toUpperCase() === 'TRUE');
 
-    // Find non-overlapping start position
-    var start = respawnPellet(board); // reuses free-cell logic
-    if (!start) start = pos(1, idx + 1); // fallback
+    var start = respawnPellet(board);
+    if (!start) start = pos(1, idx + 1);
 
-    // Place initial body (length INIT_SNAKE_LEN, grows downward from start)
     var body = [];
     for (var i = 0; i < INIT_SNAKE_LEN; i++) {
       var seg = pos(Math.min(start.r + i, GRID_ROWS), start.c);
@@ -208,11 +321,10 @@ function initGameState(ss, mainSheet) {
       alive:    true,
       autoMove: autoMove,
       actions:  actions,
-      lastDir:  null  // tracks last direction to prevent reversal
+      lastDir:  null
     });
   });
 
-  // Spawn pellets
   for (var i = 0; i < PELLET_COUNT; i++) {
     var p = respawnPellet(board);
     if (p) { pellets.push(p); board[p.r][p.c] = 'pellet'; }
@@ -221,135 +333,112 @@ function initGameState(ss, mainSheet) {
   return { board: board, snakes: snakes, pellets: pellets };
 }
 
-// ── Game tick ───────────────────────────────────────────────
+// ── Game tick ────────────────────────────────────────────────
 
 function tick(frame, snakes, pellets, board) {
   var alive = snakes.filter(function(s) { return s.alive; });
 
-  // 1. Compute desired direction per snake
   var dirs = alive.map(function(s) {
-    var dir;
-    if (s.autoMove) {
-      dir = bfsNextDir(s.body[0], board, pellets);
-    } else {
-      dir = s.actions.length ? s.actions[frame % s.actions.length] : null;
-    }
-    // Prevent reversal into own neck
-    if (dir && s.lastDir && dir === OPPOSITE[s.lastDir]) {
-      dir = s.lastDir; // keep going the same way instead of reversing
-    }
+    var dir = s.autoMove
+      ? bfsNextDir(s.body[0], board, pellets)
+      : (s.actions.length ? s.actions[frame % s.actions.length] : null);
+    if (dir && s.lastDir && dir === OPPOSITE[s.lastDir]) dir = s.lastDir;
     return dir;
   });
 
-  // 2. Compute new head positions
   var newHeads = alive.map(function(s, i) {
     var dir = dirs[i];
     if (!dir) return null;
     var nh = applyDir(s.body[0], dir);
-    return inBounds(nh) ? nh : null; // null = out of bounds = death
+    return inBounds(nh) ? nh : null;
   });
 
-  // 3. Detect collisions (before any movement)
   var dying = alive.map(function(s, i) {
     var nh = newHeads[i];
-    if (!nh) return true; // out of bounds or no action
+    if (!nh) return true;
     var cell = board[nh.r][nh.c];
-    // Hits an obstacle: another snake body, dead trail, or its own body
-    // (pellets are safe — that's the goal)
-    if (cell !== null && cell !== 'pellet') return true;
-    return false;
+    return cell !== null && cell !== 'pellet';
   });
 
-  // Detect head-on and swap collisions between pairs
   for (var i = 0; i < alive.length; i++) {
     for (var j = i + 1; j < alive.length; j++) {
       var hi = newHeads[i], hj = newHeads[j];
       if (!hi || !hj) continue;
-      // Head-on: both move to same cell
-      if (hi.r === hj.r && hi.c === hj.c) {
-        dying[i] = dying[j] = true;
-      }
-      // Swap: snake i moves to snake j's current head and vice versa
+      if (hi.r === hj.r && hi.c === hj.c) { dying[i] = dying[j] = true; }
       var iHead = alive[i].body[0], jHead = alive[j].body[0];
       if (hi.r === jHead.r && hi.c === jHead.c &&
-          hj.r === iHead.r && hj.c === iHead.c) {
-        dying[i] = dying[j] = true;
-      }
+          hj.r === iHead.r && hj.c === iHead.c) { dying[i] = dying[j] = true; }
     }
   }
 
-  // 4. Kill dying snakes — convert body to dead trail
   alive.forEach(function(s, i) {
     if (!dying[i]) return;
     s.alive = false;
     s.body.forEach(function(seg) { board[seg.r][seg.c] = 'dead'; });
   });
 
-  // 5. Move surviving snakes
   alive.forEach(function(s, i) {
     if (dying[i]) return;
     var nh  = newHeads[i];
     var dir = dirs[i];
     var idx = snakes.indexOf(s);
 
-    // Check pellet before moving (head about to enter pellet cell)
     var pelletIdx = -1;
     for (var p = 0; p < pellets.length; p++) {
       if (pellets[p].r === nh.r && pellets[p].c === nh.c) { pelletIdx = p; break; }
     }
 
-    // Vacate tail cell (unless growing from pellet)
     if (pelletIdx === -1) {
       var tail = s.body[s.body.length - 1];
       board[tail.r][tail.c] = null;
       s.body.pop();
     } else {
-      // Eat pellet, grow, respawn a new pellet
       pellets.splice(pelletIdx, 1);
       var newPellet = respawnPellet(board);
       if (newPellet) { pellets.push(newPellet); board[newPellet.r][newPellet.c] = 'pellet'; }
     }
 
-    // Place new head
     s.body.unshift(nh);
     board[nh.r][nh.c] = idx;
     s.lastDir = dir;
   });
 }
 
-// ── Entry point ─────────────────────────────────────────────
+// ── Entry point ──────────────────────────────────────────────
 
 function simulateGame() {
   var ss        = SpreadsheetApp.getActiveSpreadsheet();
   var mainSheet = ss.getSheetByName('Main');
 
   setupGrid(mainSheet);
-  var state  = initGameState(ss, mainSheet);
-  var snakes = state.snakes;
+  var state   = initGameState(ss, mainSheet);
+  var snakes  = state.snakes;
   var pellets = state.pellets;
-  var board  = state.board;
-  var frame  = 0;
+  var board   = state.board;
+  var frame   = 0;
 
   renderFrame(mainSheet, snakes, board);
+  renderScoreboard(mainSheet, snakes, frame);
   SpreadsheetApp.flush();
   Utilities.sleep(FRAME_DELAY_MS);
 
   while (snakes.filter(function(s) { return s.alive; }).length > 1 && frame < MAX_FRAMES) {
     tick(frame, snakes, pellets, board);
-    renderFrame(mainSheet, snakes, board);
-    SpreadsheetApp.flush();
     frame++;
+    renderFrame(mainSheet, snakes, board);
+    renderScoreboard(mainSheet, snakes, frame);
+    SpreadsheetApp.flush();
     Utilities.sleep(FRAME_DELAY_MS);
   }
 
   var survivors = snakes.filter(function(s) { return s.alive; });
-  var msg;
-  if (survivors.length === 1) {
-    msg = '🏆 ' + survivors[0].name + ' wins! (length: ' + survivors[0].body.length + ')';
-  } else if (survivors.length === 0) {
-    msg = '💀 Draw — all snakes eliminated!';
-  } else {
-    msg = '⏱ Time limit! Survivors: ' + survivors.map(function(s) { return s.name; }).join(', ');
-  }
+  var msg = survivors.length === 1
+    ? '🏆  ' + survivors[0].name + ' wins!  (length: ' + survivors[0].body.length + ')'
+    : survivors.length === 0
+    ? '💀  Draw — all snakes eliminated!'
+    : '⏱  Time limit!  Survivors: ' + survivors.map(function(s) { return s.name; }).join(', ');
+
   renderFrame(mainSheet, snakes, board, msg);
+  renderScoreboard(mainSheet, snakes, frame);
+  SpreadsheetApp.flush();
 }
