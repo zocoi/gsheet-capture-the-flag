@@ -133,7 +133,7 @@ function setupGrid(mainSheet) {
 
 // ── Rendering ───────────────────────────────────────────────
 
-function renderFrame(mainSheet, snakes, pellets, board, statusMsg) {
+function renderFrame(mainSheet, snakes, board, statusMsg) {
   var vals    = [];
   var bgs     = [];
   var weights = [];
@@ -330,12 +330,12 @@ function simulateGame() {
   var board  = state.board;
   var frame  = 0;
 
-  renderFrame(mainSheet, snakes, pellets, board);
+  renderFrame(mainSheet, snakes, board);
   Utilities.sleep(FRAME_DELAY_MS);
 
   while (snakes.filter(function(s) { return s.alive; }).length > 1 && frame < MAX_FRAMES) {
     tick(frame, snakes, pellets, board);
-    renderFrame(mainSheet, snakes, pellets, board);
+    renderFrame(mainSheet, snakes, board);
     frame++;
     Utilities.sleep(FRAME_DELAY_MS);
   }
@@ -349,5 +349,5 @@ function simulateGame() {
   } else {
     msg = '⏱ Time limit! Survivors: ' + survivors.map(function(s) { return s.name; }).join(', ');
   }
-  renderFrame(mainSheet, snakes, pellets, board, msg);
+  renderFrame(mainSheet, snakes, board, msg);
 }
