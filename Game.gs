@@ -19,10 +19,10 @@ var FRAME_DELAY_MS = 500;
 var INIT_SNAKE_LEN = 1;
 
 // ── Colors & symbols ────────────────────────────────────────
-var BG_EMPTY     = '#161B22';  // dark arena
-var BG_DEAD      = '#21262D';  // dim dead trail
-var BG_PELLET    = '#39D353';  // bright green pellet
-var BG_SCORE     = '#0D1117';  // scoreboard panel
+var BG_EMPTY     = '#FFFFFF';  // white arena
+var BG_DEAD      = '#9E9E9E';  // medium gray — clearly visible dead trail
+var BG_PELLET    = '#FFF176';  // bright yellow pellet
+var BG_SCORE     = '#F6F8FA';  // light scoreboard panel
 var PELLET_SYMBOL = '★';
 var DIR_ARROW    = { UP: '▲', DOWN: '▼', LEFT: '◄', RIGHT: '►' };
 
@@ -141,9 +141,9 @@ function respawnPellet(board) {
 // ── Grid setup ───────────────────────────────────────────────
 
 function setupGrid(mainSheet) {
-  // Game grid dimensions
-  for (var c = 1; c <= GRID_COLS; c++) mainSheet.setColumnWidth(c, 36);
-  for (var r = 1; r <= GRID_ROWS; r++) mainSheet.setRowHeight(r, 22);
+  // Game grid — square cells (30×30 px)
+  for (var c = 1; c <= GRID_COLS; c++) mainSheet.setColumnWidth(c, 30);
+  for (var r = 1; r <= GRID_ROWS; r++) mainSheet.setRowHeight(r, 30);
 
   var grid = mainSheet.getRange(GRID_RANGE);
   grid.clear();
@@ -151,11 +151,11 @@ function setupGrid(mainSheet) {
   grid.setFontSize(9);
   grid.setHorizontalAlignment('center');
   grid.setVerticalAlignment('middle');
-  grid.setFontColor('#C9D1D9');
+  grid.setFontColor('#9E9E9E');
 
-  // Subtle inner grid lines, bright outer border
-  grid.setBorder(null, null, null, null, true, true, '#30363D', SpreadsheetApp.BorderStyle.SOLID);
-  grid.setBorder(true, true, true, true, null, null, '#58A6FF', SpreadsheetApp.BorderStyle.SOLID_MEDIUM);
+  // Light inner grid lines, dark outer border
+  grid.setBorder(null, null, null, null, true, true, '#E0E0E0', SpreadsheetApp.BorderStyle.SOLID);
+  grid.setBorder(true, true, true, true, null, null, '#424242', SpreadsheetApp.BorderStyle.SOLID_MEDIUM);
 
   // Spacer column U
   mainSheet.setColumnWidth(GRID_COLS + 1, 10);
@@ -168,10 +168,10 @@ function setupGrid(mainSheet) {
   // Scoreboard area base style
   mainSheet.getRange(1, SCORE_COL, GRID_ROWS, 3)
     .setBackground(BG_SCORE)
-    .setFontColor('#8B949E')
+    .setFontColor('#757575')
     .setFontSize(9)
     .setVerticalAlignment('middle')
-    .setBorder(null, true, null, true, false, false, '#30363D', SpreadsheetApp.BorderStyle.SOLID);
+    .setBorder(null, true, null, true, false, false, '#E0E0E0', SpreadsheetApp.BorderStyle.SOLID);
 
   // Clear status row
   mainSheet.getRange(GRID_ROWS + 2, 1, 1, GRID_COLS)
@@ -190,10 +190,10 @@ function renderFrame(mainSheet, snakes, board, statusMsg) {
       var cell = board[r][c];
 
       if (cell === null) {
-        vRow.push('');            bRow.push(BG_EMPTY);  wRow.push('normal'); fRow.push('#30363D');
+        vRow.push('');            bRow.push(BG_EMPTY);  wRow.push('normal'); fRow.push('#E0E0E0');
 
       } else if (cell === 'pellet') {
-        vRow.push(PELLET_SYMBOL); bRow.push(BG_PELLET); wRow.push('bold');   fRow.push('#000000');
+        vRow.push(PELLET_SYMBOL); bRow.push(BG_PELLET); wRow.push('bold');   fRow.push('#F57F17');
 
       } else if (cell === 'dead') {
         vRow.push('');            bRow.push(BG_DEAD);   wRow.push('normal'); fRow.push(BG_DEAD);
@@ -208,7 +208,7 @@ function renderFrame(mainSheet, snakes, board, statusMsg) {
           fRow.push('#FFFFFF');
         } else {
           vRow.push('');
-          bRow.push(lightenColor(s.color, 0.30));
+          bRow.push(lightenColor(s.color, 0.45));  // lighter body, still visible on white
           wRow.push('normal');
           fRow.push('#FFFFFF');
         }
@@ -227,8 +227,8 @@ function renderFrame(mainSheet, snakes, board, statusMsg) {
     mainSheet.getRange(GRID_ROWS + 2, 1, 1, GRID_COLS)
       .merge()
       .setValue(statusMsg)
-      .setBackground('#0D1117')
-      .setFontColor('#58A6FF')
+      .setBackground('#F6F8FA')
+      .setFontColor('#24292E')
       .setFontSize(13)
       .setFontWeight('bold')
       .setHorizontalAlignment('center');
@@ -243,13 +243,13 @@ function renderScoreboard(mainSheet, snakes, frame) {
   // Title
   vals.push(['', '🐍 SNAKE TRON', '']);
   bgs.push([BG_SCORE, BG_SCORE, BG_SCORE]);
-  fontColors.push([BG_SCORE, '#58A6FF', BG_SCORE]);
+  fontColors.push([BG_SCORE, '#1565C0', BG_SCORE]);
   weights.push(['normal', 'bold', 'normal']);
 
   // Frame counter
   vals.push(['', 'Frame ' + frame + ' / ' + MAX_FRAMES, '']);
   bgs.push([BG_SCORE, BG_SCORE, BG_SCORE]);
-  fontColors.push([BG_SCORE, '#484F58', BG_SCORE]);
+  fontColors.push([BG_SCORE, '#757575', BG_SCORE]);
   weights.push(['normal', 'normal', 'normal']);
 
   // Spacer
@@ -259,15 +259,15 @@ function renderScoreboard(mainSheet, snakes, frame) {
   // Alive header
   vals.push(['', 'PLAYER', 'LEN']);
   bgs.push([BG_SCORE, BG_SCORE, BG_SCORE]);
-  fontColors.push([BG_SCORE, '#484F58', '#484F58']);
+  fontColors.push([BG_SCORE, '#9E9E9E', '#9E9E9E']);
   weights.push(['normal', 'normal', 'normal']);
 
   // Player rows
   snakes.forEach(function(s) {
     var alive     = s.alive;
-    var swatch    = alive ? s.color : '#21262D';
-    var nameColor = alive ? '#E6EDF3' : '#484F58';
-    var lenColor  = alive ? '#79C0FF' : '#484F58';
+    var swatch    = alive ? s.color : '#BDBDBD';
+    var nameColor = alive ? '#212121' : '#9E9E9E';
+    var lenColor  = alive ? '#1565C0' : '#9E9E9E';
     var label     = alive ? s.name : '✕ ' + s.name;
     var length    = alive ? s.body.length : '';
     vals.push(['', label, length]);
