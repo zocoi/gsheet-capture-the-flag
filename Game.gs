@@ -331,11 +331,13 @@ function simulateGame() {
   var frame  = 0;
 
   renderFrame(mainSheet, snakes, board);
+  SpreadsheetApp.flush();
   Utilities.sleep(FRAME_DELAY_MS);
 
   while (snakes.filter(function(s) { return s.alive; }).length > 1 && frame < MAX_FRAMES) {
     tick(frame, snakes, pellets, board);
     renderFrame(mainSheet, snakes, board);
+    SpreadsheetApp.flush();
     frame++;
     Utilities.sleep(FRAME_DELAY_MS);
   }
